@@ -4,6 +4,29 @@ from matplotlib import pyplot as plt
 from typing import Union
 from io import StringIO
 
+
+def Rx(theta):
+    R = np.asarray([[1, 0, 0, 0], 
+                    [0, np.cos(theta), -np.sin(theta), 0], 
+                    [0, np.sin(theta), np.cos(theta), 0], 
+                    [0, 0, 0, 1]])
+    return R
+
+def Ry(theta):
+    R = np.asarray([[np.cos(theta), 0, np.sin(theta), 0],
+                    [0, 1, 0, 0],
+                    [-np.sin(theta), 0, np.cos(theta), 0],
+                    [0, 0, 0, 1]])
+    return R
+
+def Rz(theta):
+    R = np.asarray([[np.cos(theta), -np.sin(theta), 0, 0],
+                    [np.sin(theta), np.cos(theta), 0, 0,],
+                    [0, 0, 1, 0],
+                    [0, 0, 0, 1]])
+    return R
+
+
 class coildata:
     def __init__(self, sourcefile = None):
         if sourcefile is not None:
@@ -92,8 +115,11 @@ class coildata:
         ax.set_zlabel('Z')
         plt.tight_layout()
         plt.show()
-  
-    def write(self,fname:str,direc='',coilnames=None,periods=12,coilformat='omfit'):
+        
+        return
+
+
+    def write(self,fname:str,direc='',coilnames=None,periods=12,coilformat='omfit',numcoils=1):
             
         if coilformat == 'omfit':
             header = f"periods {periods}\nbegin filaments\nmirror NUL\n"
@@ -129,7 +155,12 @@ class coildata:
                 fulllen = 0
                 for i in range(len(self.coilsdict[name])):
                     fulllen += len(self.coilsdict[name][i])
-                header = f" {str(1).rjust(4)} {'1'.rjust(4)} {str(fulllen).rjust(4)} {str(periods).rjust(4)}.00\n"
+                # reminder: header vars mean 
+                # | number of evenly divided coils in this file |
+                # | not sure? Just keep 1 |
+                # | total number of points in the file |
+                # | number of windings about these coils |
+                header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)} {str(fulllen).rjust(4)} {str(periods).rjust(4)}.00\n"
                 footer = ''
                 fxyz = '{:-13.4e}'
 
@@ -147,6 +178,165 @@ class coildata:
         else:
             raise ValueError('Unsupported coil format')
 
+        return
+
     def addcoil(self, name, group, xyzi):
         self.coilsdict[name].append(np.array(xyzi))
         self.groupsdict[name].append(group)
+
+        return
+
+    def coilsgenerate(self, R, Z, dR, dZ, name, coilsshape = (1,1), numpoints = 500):
+
+    
+
+        diffr = diffz = 0
+
+        if coilsshape[0] > 1:
+            diffr = dR/(coilsshape[0] - 1)
+        if coilsshape[1] > 1:
+            diffz = dZ/(coilsshape[1] - 1)
+        phi = np.linspace(0,2*np.pi,numpoints)
+
+        for i in range(coilsshape[0]):
+            for j in range(coilsshape[1]):
+                rij = R + i*diffr
+                zij = Z + j*diffz
+
+                xyzi = np.asarray([rij*np.cos(phi), rij*np.sin(phi), zij*np.ones(numpoints), np.ones(numpoints)]).T
+
+                self.addcoil(name, 0, xyzi)
+
+        return    
+
+    def shift(self, part:str = 'CP', direc:str = 'x', dx:float = 0.01):
+        """
+        DO NOT TRY TO SHIFT CENTER POST AND ITS INDIVIDUAL COMPONENTS IN DIFFERENT WAYS AT ONCE!
+        """
+        if part in self.coilsdict.keys():
+            for i in range(len(self.coilsdict[part])):
+                if direc == 'x':
+                    self.coilsdict[part][i] += np.asarray([dx, 0, 0, 0])
+                elif direc == 'y':
+                    self.coilsdict[part][i] += np.asarray([0, dx, 0, 0])
+                elif direc == 'z':
+                    self.coilsdict[part][i] += np.asarray([0, 0, dx, 0])
+                else:
+                    print('invalid direction')
+                    return
+        
+        elif part == 'CP':
+            CP_fullparts = ['OH','PF1AU','PF1BU','PF1CU','PF1CL','PF1BL','PF1AL']
+#             CP_fullparts = ['OH', 'PF1AU', 'PF1AL', 'PF1B']
+            #non-TF
+            for parta in CP_fullparts:
+                for i in range(len(self.coilsdict[parta])):
+                    if direc == 'x':
+                        self.coilsdict[parta][i] += np.asarray([dx, 0, 0, 0])
+                    elif direc == 'y':
+                        self.coilsdict[parta][i] += np.asarray([0, dx, 0, 0])
+                    elif direc == 'z':
+                        self.coilsdict[parta][i] += np.asarray([0, 0, dx, 0])
+                    else:
+                        print('invalid direction')
+                        return
+
+            #TF
+            #rlim^2 = 0.01000001 for TF coils
+            for i in range(len(self.coilsdict['TF'])):
+                for j in range(len(self.coilsdict['TF'][i])):
+                    if self.coilsdict['TF'][i][j][0]**2 + self.coilsdict['TF'][i][j][1]**2 <= 0.01000001:
+                        if direc == 'x':
+                            self.coilsdict['TF'][i][j] += np.asarray([dx, 0, 0, 0])
+                        elif direc == 'y':
+                            self.coilsdict['TF'][i][j] += np.asarray([0, dx, 0, 0])
+                        elif direc == 'z':
+                            self.coilsdict['TF'][i][j] += np.asarray([0, 0, dx, 0])
+                        else:
+                            print('invalid direction')
+                            return
+            
+        elif part == 'PF':
+            PF_fullparts = [a for a in self.coilsdict.keys() if (a[:2] == 'PF')]
+            for parta in PF_fullparts:
+                for i in range(len(self.coilsdict[parta])):
+                    if direc == 'x':
+                        self.coilsdict[parta][i] += np.asarray([dx, 0, 0, 0])
+                    elif direc == 'y':
+                        self.coilsdict[parta][i] += np.asarray([0, dx, 0, 0])
+                    elif direc == 'z':
+                        self.coilsdict[parta][i] += np.asarray([0, 0, dx, 0])
+                    else:
+                        print('invalid direction')
+                        return
+
+            
+        else:
+            print('invalid part')
+        
+        print(f'Shifted {part} by {100*dx} cm in the +{direc}-direction.')
+        return
+        
+        
+    def rotate(self, part:str = 'CP', axis = 'y', dtheta:float = 0.005):
+        
+        if part in self.coilsdict.keys():
+            for i in range(len(self.coilsdict[part])):
+                if axis == 'x':
+                    self.coilsdict[part][i] = np.matmul(Rx(dtheta), self.coilsdict[part][i].T).T
+                elif axis == 'y':
+                    self.coilsdict[part][i] = np.matmul(Ry(dtheta), self.coilsdict[part][i].T).T
+                elif axis == 'z':
+                    self.coilsdict[part][i] = np.matmul(Rz(dtheta), self.coilsdict[part][i].T).T
+                else:
+                    print('invalid axis')
+                    
+        elif part == 'CP':          
+            
+#             CP_fullparts = ['OH', 'PF1AU', 'PF1AL', 'PF1B']
+            CP_fullparts = ['OH','PF1AU','PF1BU','PF1CU','PF1CL','PF1BL','PF1AL']
+            #non-TF
+            for parta in CP_fullparts:
+                for i in range(len(self.coilsdict[parta])):
+                    if axis == 'x':
+                        self.coilsdict[parta][i] = np.matmul(Rx(dtheta), self.coilsdict[parta][i].T).T
+                    elif axis == 'y':
+                        self.coilsdict[parta][i] = np.matmul(Ry(dtheta), self.coilsdict[parta][i].T).T
+                    elif axis == 'z':
+                        self.coilsdict[parta][i] = np.matmul(Rz(dtheta), self.coilsdict[parta][i].T).T
+                    else:
+                        print('invalid axis')
+
+            #TF
+            #rlim^2 = 0.01000001 for TF coils
+            for i in range(len(self.coilsdict['TF'])):
+                for j in range(len(self.coilsdict['TF'][i])):
+                    if self.coilsdict['TF'][i][j][0]**2 + self.coilsdict['TF'][i][j][1]**2 <= 0.01000001:
+                        if axis == 'x':
+                            self.coilsdict['TF'][i][j] = np.matmul(Rx(dtheta), self.coilsdict['TF'][i][j])
+                        elif axis == 'y':
+                            self.coilsdict['TF'][i][j] = np.matmul(Ry(dtheta), self.coilsdict['TF'][i][j])
+                        elif axis == 'z':
+                            self.coilsdict['TF'][i][j] = np.matmul(Rz(dtheta), self.coilsdict['TF'][i][j])
+                        else:
+                            print('invalid axis')
+                            return
+                        
+        elif part == 'PF':
+            PF_fullparts = [a for a in self.coilsdict.keys() if (a[:2] == 'PF')]
+            for parta in PF_fullparts:
+                for i in range(len(self.coilsdict[parta])):
+                    if axis == 'x':
+                        self.coilsdict[parta][i] = np.matmul(Rx(dtheta), self.coilsdict[parta][i].T).T
+                    elif axis == 'y':
+                        self.coilsdict[parta][i] = np.matmul(Ry(dtheta), self.coilsdict[parta][i].T).T
+                    elif axis == 'z':
+                        self.coilsdict[parta][i] = np.matmul(Rz(dtheta), self.coilsdict[parta][i].T).T
+                    else:
+                        print('invalid axis')
+                        
+        else:
+            print('invalid part')
+        
+        print(f'Rotated {part} by {dtheta} radians about the {axis}-axis.')
+        return
