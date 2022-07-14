@@ -6,24 +6,26 @@ from io import StringIO
 
 
 def Rx(theta):
+    c = np.cos(theta)
+    s = np.sin(theta)
     R = np.asarray([[1, 0, 0, 0], 
                     [0, np.cos(theta), -np.sin(theta), 0], 
                     [0, np.sin(theta), np.cos(theta), 0], 
-                    [0, 0, 0, 1]])
+                    [0, 0, 0, 1]], dtype = np.float64)
     return R
 
 def Ry(theta):
     R = np.asarray([[np.cos(theta), 0, np.sin(theta), 0],
                     [0, 1, 0, 0],
                     [-np.sin(theta), 0, np.cos(theta), 0],
-                    [0, 0, 0, 1]])
+                    [0, 0, 0, 1]], dtype = np.float64)
     return R
 
 def Rz(theta):
     R = np.asarray([[np.cos(theta), -np.sin(theta), 0, 0],
                     [np.sin(theta), np.cos(theta), 0, 0,],
                     [0, 0, 1, 0],
-                    [0, 0, 0, 1]])
+                    [0, 0, 0, 1]], dtype = np.float64)
     return R
 
 
@@ -72,7 +74,6 @@ class coildata:
             s += "    No coils, object empty\n"
 
         return s
-
         
     def plot(self, key:Union[str,list]='all', rmax:float=3.,zmax:float=3,points='-'):
         fig = plt.figure()
@@ -118,7 +119,6 @@ class coildata:
         
         return
 
-
     def write(self,fname:str,direc='',coilnames=None,periods=12,coilformat='omfit',numcoils=1):
             
         if coilformat == 'omfit':
@@ -153,6 +153,7 @@ class coildata:
             # does not yet support 'none' as coilnames, will default to writing all coils.
             for name in self.coilsdict.keys():
                 fulllen = 0
+                firstlen = len(self.coilsdict[name][0])
                 for i in range(len(self.coilsdict[name])):
                     fulllen += len(self.coilsdict[name][i])
                 # reminder: header vars mean 
@@ -160,7 +161,8 @@ class coildata:
                 # | not sure? Just keep 1 |
                 # | total number of points in the file |
                 # | number of windings about these coils |
-                header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)} {str(fulllen).rjust(4)} {str(periods).rjust(4)}.00\n"
+                header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)} {str(firstlen).rjust(4)} {str(periods).rjust(4)}.00\n"
+                # header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)} {str(fulllen).rjust(4)} {str(periods).rjust(4)}.00\n"
                 footer = ''
                 fxyz = '{:-13.4e}'
 
@@ -275,19 +277,24 @@ class coildata:
             print('invalid part')
         
         print(f'Shifted {part} by {100*dx} cm in the +{direc}-direction.')
-        return
+        return 
         
-        
-    def rotate(self, part:str = 'CP', axis = 'y', dtheta:float = 0.005):
+    def rotate(self, part:str = 'CP', axis = 'y', centerpoint = 'center', dtheta:float = 0.005):
         
         if part in self.coilsdict.keys():
+
+            if centerpoint == 'center':
+                centerpoint = np.mean(self.coilsdict[part], axis=(0,1))
+            realcenter = np.asarray([centerpoint[0],centerpoint[1],centerpoint[2],0])
+
+
             for i in range(len(self.coilsdict[part])):
                 if axis == 'x':
-                    self.coilsdict[part][i] = np.matmul(Rx(dtheta), self.coilsdict[part][i].T).T
+                    self.coilsdict[part][i] = np.matmul(Rx(dtheta), (self.coilsdict[part][i] - realcenter).T).T + realcenter
                 elif axis == 'y':
-                    self.coilsdict[part][i] = np.matmul(Ry(dtheta), self.coilsdict[part][i].T).T
+                    self.coilsdict[part][i] = np.matmul(Ry(dtheta), (self.coilsdict[part][i] - realcenter).T).T + realcenter
                 elif axis == 'z':
-                    self.coilsdict[part][i] = np.matmul(Rz(dtheta), self.coilsdict[part][i].T).T
+                    self.coilsdict[part][i] = np.matmul(Rz(dtheta), (self.coilsdict[part][i] - realcenter).T).T + realcenter
                 else:
                     print('invalid axis')
                     
