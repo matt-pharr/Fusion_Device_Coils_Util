@@ -1,8 +1,12 @@
 from collections import defaultdict
+from turtle import color
+from urllib.response import addclosehook
 import numpy as np
 from matplotlib import pyplot as plt
 from typing import Union
 from io import StringIO
+
+from requests import head
 
 
 def Rx(theta):
@@ -30,40 +34,17 @@ def Rz(theta):
 
 
 class coildata:
-    def __init__(self, sourcefile = None):
-        if sourcefile is not None:
-            with open(sourcefile) as f:
-                data = f.read()
-
-            dl = data.split(' 1 ')
-            dlines = data.splitlines()
-            coils = defaultdict(list)
-            groups = defaultdict(list)
-            i = 0
-            worker = []
-            for line in dlines:
-                if len(line.split()) != 4:
-                    if len(line.split()) > 4:
-                        worker.append([float(a) for a in line.split()[:4] ])
-                        coils[line.split()[-1]].append(np.asarray(worker))
-                        if len(line.split()) == 1:
-                            groups[line.split()[-1]].append(0)
-                        else:
-                            groups[line.split()[-1]].append(line.split()[0])
-                        worker = []
-                    else:
-                        continue
-                else:
-                    worker.append([float(a) for a in line.split()])
-            
-            self.coilsdict = coils
-            self.groupsdict = groups
+    def __init__(self, sourcefiles = None, sftype = 'OMFIT', debug=False):
+        coils = defaultdict(list)
+        groups = defaultdict(list)
+        self.coilsdict = coils
+        self.groupsdict = groups
+        
+        if sourcefiles is not None:
+            self.readcoils(sourcefiles, sftype, debug)
 
         else:
-            coils = defaultdict(list)
-            groups = defaultdict(list)
-            self.coilsdict = coils
-            self.groupsdict = groups
+            pass
 
     def __str__(self):
         s = \
@@ -75,20 +56,71 @@ class coildata:
 
         return s
         
-    def plot(self, key:Union[str,list]='all', rmax:float=3.,zmax:float=3,points='-'):
-        fig = plt.figure()
+    def readcoils(self, sourcefiles = None, sftype='OMFIT', debug=False):
+        for sourcefile in sourcefiles:
+            with open(sourcefile, 'r') as f:
+                data = f.read()
+                print('found coils file')
+            if sftype == 'OMFIT':
+                dl = data.split(' 1 ')
+                dlines = data.splitlines()
+                coils = defaultdict(list)
+                groups = defaultdict(list)
+                i = 0
+                worker = []
+                if debug:
+                    print(dlines)
+                for line in dlines:
+                    if len(line.split()) != 4:
+                        if len(line.split()) > 4:
+                            worker.append([float(a) for a in line.split()[:4] ])
+                            coils[line.split()[-1]].append(np.asarray(worker))
+                            if len(line.split()) == 1:
+                                groups[line.split()[-1]].append(0)
+                            else:
+                                groups[line.split()[-1]].append(line.split()[0])
+                            worker = []
+                        else:
+                            continue
+                    else:
+                        worker.append([float(a) for a in line.split()])
+                
+                self.coilsdict.update(coils)
+                self.groupsdict.update(groups)
+            elif sftype == 'GPEC':
+                
+                dlines = data.splitlines()
+                header = dlines[0].split()
+                xyzlong = np.array([x.split() for x in dlines[1:]]).astype(float)
+                if int(header[2]) == np.shape(xyzlong)[0]/int(header[0]) and debug:
+                    print('correct array lengths')
+                elif debug:
+                    print('error in data file')
+                else: 
+                    pass
+                xyz = xyzlong.reshape(int(header[0]), int(header[2]), 3)
+                xyzi = np.empty((int(header[0]), int(header[2]), 4))
+                xyzi[:,:,:-1] = xyz[:,:,:]
+                xyzi[:,:,-1] = 1.
+                # print(xyzi)
+                for i in range(int(header[0])):
+                    self.addcoil(sourcefile[-8:-4].upper(),0,xyzi[i,:,:])
+
+    def plot(self, key:Union[str,list]='all', rmax:float=3.,zmax:float=3,points='-', legend=False, colorlist = None, duallegend=None):
+        colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+        fig = plt.figure(figsize=(10,6))
         ax = fig.add_subplot(111, projection='3d')
         if type(key) == str:            
             if key == 'all':
 
-                for key in reversed(list(self.coilsdict.keys())):
+                for j, key in enumerate(reversed(list(self.coilsdict.keys()))):
 
                     for i in range(len(self.coilsdict[key])):
                         c1 = np.asarray(self.coilsdict[key][i])
                         x = c1.T[0]
                         y = c1.T[1]
                         z = c1.T[2]
-                        ax.plot(x,y,z,points)
+                        ax.plot(x,y,z,points,color=colors[j%len(colors)])
 
             else:
                 for i in range(len(self.coilsdict[key])):
@@ -100,21 +132,39 @@ class coildata:
                 print(len(self.coilsdict[key]))
 
         else:
-            for k in key:
-                for i in range(len(self.coilsdict[k])):
-                    c1 = np.asarray(self.coilsdict[k][i])
+            if colorlist is not None:
+                colors = colorlist
+            for j, k in enumerate(key):
+                for i in range(len(self.coilsdict[k.upper()])):
+                    
+                    c1 = np.asarray(self.coilsdict[k.upper()][i])
                     x = c1.T[0]
                     y = c1.T[1]
                     z = c1.T[2]
-                    ax.plot(x,y,z)
+                    if i == 0:
+                        ax.plot(x,y,z,color=colors[j],label=k.upper())
+                    else:
+                        ax.plot(x,y,z,color=colors[j])
+
                 
         ax.set_xlim(-rmax,rmax)
         ax.set_ylim(-rmax,rmax)
-#         ax.set_zlim(-3,3)
+        ax.set_zlim(-zmax,zmax)
         ax.set_xlabel('X')
         ax.set_ylabel('Y')
         ax.set_zlabel('Z')
+        if legend:
+            l1 = plt.legend(loc=1)
+            ax.add_artist(l1)
+        if duallegend is not None:
+            for key in duallegend.keys():
+                ax.plot(np.NaN, np.NaN, c=duallegend[key])
+            lines = ax.get_lines()
+            l2 = plt.legend(lines[-len(duallegend.keys()):], duallegend.keys(), loc=4)
+            ax.add_artist(l2)
+                
         plt.tight_layout()
+        plt.savefig('tempplot.pdf')
         plt.show()
         
         return
@@ -347,3 +397,6 @@ class coildata:
         
         print(f'Rotated {part} by {dtheta} radians about the {axis}-axis.')
         return
+
+    def getcoils(self):
+        return self.coilsdict.keys()
