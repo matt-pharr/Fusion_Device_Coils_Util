@@ -12,27 +12,27 @@ from typing import Union
 from steplib import coil_read
 
 
-def Rx(theta):
+def Rx(theta:np.float32):
 	c = np.cos(theta)
 	s = np.sin(theta)
 	R = np.asarray([[1, 0, 0, 0], 
 					[0, np.cos(theta), -np.sin(theta), 0], 
 					[0, np.sin(theta), np.cos(theta), 0], 
-					[0, 0, 0, 1]], dtype = np.float64)
+					[0, 0, 0, 1]], dtype = np.float32)
 	return R
 
-def Ry(theta):
+def Ry(theta:np.float32):
 	R = np.asarray([[np.cos(theta), 0, np.sin(theta), 0],
 					[0, 1, 0, 0],
 					[-np.sin(theta), 0, np.cos(theta), 0],
-					[0, 0, 0, 1]], dtype = np.float64)
+					[0, 0, 0, 1]], dtype = np.float32)
 	return R
 
-def Rz(theta):
+def Rz(theta:np.float32):
 	R = np.asarray([[np.cos(theta), -np.sin(theta), 0, 0],
 					[np.sin(theta), np.cos(theta), 0, 0,],
 					[0, 0, 1, 0],
-					[0, 0, 0, 1]], dtype = np.float64)
+					[0, 0, 0, 1]], dtype = np.float32)
 	return R
 
 
@@ -76,13 +76,16 @@ class coildata:
 		return s
 		
 	def readcoils(self, sourcefiles:list[str], 
-				  sftype:str='OMFIT', debug:bool=False) -> None:
+				  sftype:str='OMFIT', debug:bool=False,
+				    name='tempname', startfunc = lambda x: x is None,
+					 cutoffsphere = 1e6) -> None:
 		
 		for sourcefile in sourcefiles:
-			with open(sourcefile, 'r') as f:
-				data = f.read()
-				print('found coils file')
-			if sftype == 'OMFIT':
+			
+			if sftype.upper() == 'OMFIT':
+				with open(sourcefile, 'r') as f:
+					data = f.read()
+					print('found coils file')
 				dl = data.split(' 1 ')
 				dlines = data.splitlines()
 				coils = defaultdict(list)
@@ -111,8 +114,10 @@ class coildata:
 				
 				self.coilsdict.update(coils)
 				self.groupsdict.update(groups)
-			elif sftype == 'GPEC':
-				
+			elif sftype.upper() == 'GPEC':
+				with open(sourcefile, 'r') as f:
+					data = f.read()
+					print('found coils file')
 				dlines = data.splitlines()
 				header = dlines[0].split()
 				xyzlong = np.array([x.split() for x \
@@ -135,18 +140,31 @@ class coildata:
 					self.addcoil(sourcefile[-8:-4].upper(),
 								 0,xyzi[i,:,:])
 					
-			elif sftype == 'STEP':
+			elif sftype.upper() == 'STEP':
+				print('found STEP file')
 				xyzi = coil_read([sourcefile], pointspermeter=50, 
-								 tolerance=-1, force=False)
+								 tolerance=-1, force=False, 
+								 startfunc=startfunc, 
+								 cutoffsphere=cutoffsphere)
 				coilnum = len(xyzi)
 				for i in range(coilnum):
-					self.addcoil(f"tempname_{i}", 0, xyzi[i])
+					self.addcoil(f"{name}_{i}", 0, xyzi[i])
+
+			else:
+				print('unsupported coil file type')
+				raise ValueError
+
 	def plot(self, key:Union[str,list]='all', rmax:float=3.,
 			 zmax:float=3,points='-', legend=False, 
-			 colorlist = None, duallegend=None):
+			 colorlist = None, duallegend=None, fig=None, ax=None):
 		colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-		fig = plt.figure(figsize=(10,6))
-		ax = fig.add_subplot(111, projection='3d')
+		if fig is None:
+			fig = plt.figure(figsize=(10,6))
+		if ax is None:
+			ax = fig.add_subplot(111, projection='3d')
+		else:
+			pass
+
 		if type(key) == str:            
 			if key == 'all':
 
@@ -202,17 +220,22 @@ class coildata:
 			l2 = plt.legend(lines[-len(duallegend.keys()):], 
 							duallegend.keys(), loc=4)
 			ax.add_artist(l2)
-				
-		plt.tight_layout()
-		plt.savefig('tempplot.pdf')
-		plt.show()
 		
-		return
+		return fig, ax
 
 	def write(self,fname:str,direc='',coilnames=None,periods=12,
 			  coilformat='omfit',numcoils=1):
+		"""
+		Writes coil data to a file.
+		fname: string, name of file to write to.
+		direc: string, directory to write to.
+		coilnames: list of strings, names of coils to write.
+		periods: int, number of turns per coil.
+		coilformat: string, either 'omfit' or 'gpec'.
+		numcoils: int, number of coils to write.
+		"""
 			
-		if coilformat == 'omfit':
+		if coilformat.upper() == 'OMFIT':
 			header = f"periods {periods}\nbegin filaments\
 				\nmirror NUL\n"
 			footer = "end\n"
@@ -250,7 +273,7 @@ class coildata:
 				f.write(footer)
 			
 		
-		elif coilformat == 'gpec':
+		elif coilformat.upper() == 'GPEC':
 			# does not yet support 'none' as coilnames, will default to writing all coils.
 			for name in self.coilsdict.keys():
 				fulllen = 0
@@ -271,8 +294,8 @@ class coildata:
 				footer = ''
 				fxyz = '{:-13.4e}'
 
-				with open(f"{direc}/gpeccoils/{fname}_\
-						  {name.replace(' ','')}.dat",'w') as f:
+				with open(f"{direc}/gpeccoils/{fname}_" + \
+						  f"{name.replace(' ','')}.dat",'w') as f:
 					f.write(header)
 					body = ''
 					for coil in self.coilsdict[name]:
@@ -392,7 +415,7 @@ class coildata:
 		print(f'Shifted {part} by {100*dx} cm in the +{direc}-direction.')
 		return 
 		
-	def rotate(self, part:str = 'CP', axis = 'y', centerpoint = 'center', dtheta:float = 0.005):
+	def rotate(self, part:str = 'CP', axis = 'y', centerpoint = 'center', dtheta:np.float64 = 0.005):
 		
 		if part in self.coilsdict.keys():
 
