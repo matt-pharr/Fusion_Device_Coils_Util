@@ -1,2 +1,9 @@
 *.ipynb
 __pycache__/*
+*.npy
+*.pdf
+*.zip
+gpeccoils/*
+unperturbed/gpeccoils/*
+erf_coils/
+erf_coils/*
