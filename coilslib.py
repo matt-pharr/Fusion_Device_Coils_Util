@@ -1,3 +1,19 @@
+"""
+Library of basic functionality for working with coils for tokamaks or
+stellarators in python. 
+
+
+Author: Matthew Pharr
+Date: 25 August 2023
+matthew.pharr@columbia.edu
+
+Copyright (c) 2023, Matthew Pharr.
+All rights reserved.
+
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree. 
+"""
+
 from calendar import c
 from collections import defaultdict
 # from turtle import color
@@ -78,7 +94,8 @@ class coildata:
 	def readcoils(self, sourcefiles:list[str], 
 				  sftype:str='OMFIT', debug:bool=False,
 				    name='tempname', startfunc = lambda x: x is None,
-					 cutoffsphere = 1e6) -> None:
+					 cutoffsphere = 1e6, ppm=(100*np.pi),
+					 tol=5/(100*np.pi)) -> None:
 		
 		for sourcefile in sourcefiles:
 			
@@ -142,13 +159,17 @@ class coildata:
 					
 			elif sftype.upper() == 'STEP':
 				print('found STEP file')
-				xyzi = coil_read([sourcefile], pointspermeter=50, 
-								 tolerance=-1, force=False, 
+				# ppm = 100*np.pi
+				xyzi = coil_read([sourcefile], pointspermeter=ppm, 
+								 tolerance=tol, force=False, 
 								 startfunc=startfunc, 
 								 cutoffsphere=cutoffsphere)
 				coilnum = len(xyzi)
 				for i in range(coilnum):
-					self.addcoil(f"{name}_{i}", 0, xyzi[i])
+					coil = np.empty((len(xyzi[i]),4))
+					coil[:,:-1] = xyzi[i]
+					coil[:,-1] = 1.
+					self.addcoil(f"{name}_{i}", 0, coil)
 
 			else:
 				print('unsupported coil file type')
@@ -167,41 +188,53 @@ class coildata:
 
 		if type(key) == str:            
 			if key == 'all':
-
-				for j, key in enumerate(reversed(\
+				if type(colorlist) == list:
+					colors = colorlist
+				elif type(colorlist) == str:
+					colors = len(self.coilsdict.keys())*[colorlist]
+				for j, keyn in enumerate(reversed(\
 					list(self.coilsdict.keys()))):
 
-					for i in range(len(self.coilsdict[key])):
-						c1 = np.asarray(self.coilsdict[key][i])
+					for i in range(len(self.coilsdict[keyn])):
+						c1 = np.asarray(self.coilsdict[keyn][i])
 						x = c1.T[0]
 						y = c1.T[1]
 						z = c1.T[2]
 						ax.plot(x,y,z,points,color=\
-								colors[j%len(colors)])
+								colors[j%len(colors)], 
+								label=keyn.upper())
 
 			else:
+				if type(colorlist) == list:
+					colors = colorlist
+				elif type(colorlist) == str:
+					colors = [colorlist]
 				for i in range(len(self.coilsdict[key])):
 					c1 = np.asarray(self.coilsdict[key][i])
 					x = c1.T[0]
 					y = c1.T[1]
 					z = c1.T[2]
-					ax.plot(x,y,z)
+					ax.plot(x,y,z,points,color = colors[0], 
+			 					label = key.upper())
 				print(len(self.coilsdict[key]))
 
 		else:
 			if colorlist is not None:
-				colors = colorlist
+				if type(colorlist) == list:
+					colors = colorlist
+				elif type(colorlist) == str:
+					colors = len(key)*[colorlist]
 			for j, k in enumerate(key):
-				for i in range(len(self.coilsdict[k.upper()])):
+				for i in range(len(self.coilsdict[k])):
 					
-					c1 = np.asarray(self.coilsdict[k.upper()][i])
+					c1 = np.asarray(self.coilsdict[k][i])
 					x = c1.T[0]
 					y = c1.T[1]
 					z = c1.T[2]
 					if i == 0:
-						ax.plot(x,y,z,color=colors[j],label=k.upper())
+						ax.plot(x,y,z,color=colors[j%len(colors)],label=k.upper())
 					else:
-						ax.plot(x,y,z,color=colors[j])
+						ax.plot(x,y,z,color=colors[j%len(colors)])
 
 				
 		ax.set_xlim(-rmax,rmax)
@@ -286,7 +319,7 @@ class coildata:
 				# | total number of points in the file |
 				# | number of windings about these coils |
 				header = f" {str(numcoils).rjust(4)}" +\
-					f" {'1'.rjust(4)}{str(firstlen).rjust(4)}" +\
+					f" {'1'.rjust(4)} {str(firstlen).rjust(4)}" +\
 						f" {str(periods).rjust(4)}.00\n"
 				# header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)}\
 				#  {str(fulllen).rjust(4)} \

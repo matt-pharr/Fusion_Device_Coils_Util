@@ -1,9 +1,25 @@
 """
 Library of basic functionality for extracting coil data
-from STPs in python.
+from STPs in python. Currently tested on coils from SPARC and ITER. 
+
+Note: If you wish to use this library for your own coils, you may
+need to tweak some of these algorithms! STEP files have many different
+types of objects and the extraction algorithm is capable of dealing with
+two of them. This code can currently not deal with any coils that have
+jacketing or other features that are not interpolated wires or edges. 
+It also cannot yet deal with thick coils (i.e. coils with a cross section
+that is not a single point). This may be added in the future, but for now
+it is workable with centerline traces of coils.
+
 Author: Matthew Pharr
 Date: 25 August 2023
 matthew.pharr@columbia.edu
+
+Copyright (c) 2023, Matthew Pharr.
+All rights reserved.
+
+This source code is licensed under the MIT license found in the
+LICENSE file in the root directory of this source tree. 
 """
 
 
@@ -167,7 +183,7 @@ def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., for
     try:
         b = wire_iterator.More()
     except Exception as e:
-        # print("Error: wire_iterator is not a TopoDS_Iterator. Trying edges list:")
+        print("Wire_iterator is not a TopoDS_Iterator. Trying edges list:")
         pass
     if b:
         xyz = []
@@ -191,6 +207,8 @@ def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., for
                 xyz.extend(xyzadd)
                 pass
             else:
+                print(xyz)
+
                 isvalid = test_connection(xyz, xyzadd, tolerance)
                 if isvalid:
                     xyz.extend(xyzadd)
@@ -249,8 +267,10 @@ def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., for
             
             # Rasterize points on the curve
             xyzwire = sample_curve_points(curve, u_start, u_end, numpoints)
-
+            if len(xyzwire) == 0:
+                continue
             # Remove points outside of the cutoff sphere
+            # print(xyzwire.shape)
             dist = np.linalg.norm(xyzwire, axis=1)
             mask = dist <= cutoffsphere
             xyzwire = xyzwire[mask]
@@ -297,11 +317,12 @@ def coil_read(sourcefiles:list[str] = [''],
                                 tolerance, force, startfunc)
                 coils.append(xyz)
             if len(coils) == 0:
-                # print("Error: no wires found in file.")
+                print("No wires found in file.")
                 try: 
                     coils.extend(coil_extract(t.edges(), pointspermeter, tolerance, force, startfunc, cutoffsphere))
-                except:
+                except Exception as e:
                     print("Error: no wires or edges found in file.")
+                    print(e)
                     raise ValueError
 
         else:
@@ -309,11 +330,10 @@ def coil_read(sourcefiles:list[str] = [''],
     return coils
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     coils = []
-    compound = read_step_file("/Users/pharr/Downloads/\
-                              CS_STACK_FILAMENT_SKE#4BTN4M\
-                               --C_08-07-2023.stp")
+    compound = read_step_file("/Users/pharr/Downloads/" + \
+                              "CS_STACK_FILAMENT_SKE#4BTN4M --C_08-07-2023.stp")
     t = TopologyExplorer(compound) # type: ignore
     pointspermeter = 50
     tolerance = 5/pointspermeter
