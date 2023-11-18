@@ -7,3 +7,4 @@ gpeccoils/*
 unperturbed/gpeccoils/*
 erf_coils/
 erf_coils/*
+runall.py
