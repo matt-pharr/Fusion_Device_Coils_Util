@@ -93,6 +93,9 @@ def test_connection(xyz, xyzadd, tolerance):
             print("tail to tail dist:",tail_to_tail_dist)
             print("tail to head dist:",tail_to_head_dist)
         isvalid = True
+    elif len(xyzadd) == 1:
+        if tail_to_tail_dist < tolerance:
+            isvalid = True
     else:
         # print("Error: segments are too far apart. Change tolerance.")
         # print("xyz[-1]:",xyz[-1])
