@@ -14,18 +14,21 @@ This source code is licensed under the MIT license found in the
 LICENSE file in the root directory of this source tree. 
 """
 
-from calendar import c
 from collections import defaultdict
-# from turtle import color
-# from urllib.response import addclosehook
 import numpy as np
 from matplotlib import pyplot as plt
 from typing import Union
-# from io import StringIO
-
-# from requests import head
 
 from steplib import coil_read
+
+mayavi_successful = False
+try:
+	from mayavi import mlab
+	mayavi_successful = False
+except ImportError:
+	print('Mayavi not installed, 3D plotting will use MPL')
+
+
 
 
 def Rx(theta:np.float32):
@@ -154,8 +157,9 @@ class coildata:
 				xyzi[:,:,-1] = 1.
 				# print(xyzi)
 				for i in range(int(header[0])):
-					self.addcoil(sourcefile[-8:-4].upper(),
-								 0,xyzi[i,:,:])
+					# self.addcoil(sourcefile[-8:-4].upper(),
+					# 			 0,xyzi[i,:,:])
+					self.addcoil(sourcefile[-8:-4],0,xyzi[i,:,:])
 					
 			elif sftype.upper() == 'STEP':
 				print('found STEP file')
@@ -178,13 +182,25 @@ class coildata:
 	def plot(self, key:Union[str,list]='all', rmax:float=3.,
 			 zmax:float=3,points='-', legend=False, 
 			 colorlist = None, duallegend=None, fig=None, ax=None):
-		colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-		if fig is None:
-			fig = plt.figure(figsize=(10,6))
-		if ax is None:
-			ax = fig.add_subplot(111, projection='3d')
+		
+		if not mayavi_successful:
+			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+			if fig is None:
+				fig = plt.figure(figsize=(10,6))
+			if ax is None:
+				ax = fig.add_subplot(111, projection='3d')
+			else:
+				pass
+
+		
 		else:
-			pass
+			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+			if fig is None:
+				fig = mlab.figure(bgcolor=(1, 1, 1), fgcolor=(0, 0, 0), size=(600, 500))
+			
+			return self.__mayavi_plot(key, fig, colorlist)
+
+
 
 		if type(key) == str:            
 			if key == 'all':
@@ -256,14 +272,49 @@ class coildata:
 		
 		return fig, ax
 
-	def write(self,fname:str,direc='',coilnames=None,periods=12,
+	def __mayavi_plot(self, key:Union[str,list], fig, colors):
+		if colors is None:
+			colors = [(0,0,0)]*len(self.coilsdict.keys())
+
+		if type(key) == str:
+			if key == 'all':
+				for j, key in enumerate(self.coilsdict.keys()):
+					for i in range(len(self.coilsdict[key])):
+						c1 = np.asarray(self.coilsdict[key][i])
+						x = c1.T[0]
+						y = c1.T[1]
+						z = c1.T[2]
+						o = mlab.plot3d(x, y, z, tube_radius=0.01, figure=fig, color=colors[j])
+			else:
+				for i in range(len(self.coilsdict[key])):
+					c1 = np.asarray(self.coilsdict[key][i])
+					x = c1.T[0]
+					y = c1.T[1]
+					z = c1.T[2]
+					o = mlab.plot3d(x, y, z, tube_radius=0.01, figure=fig, color=colors[0])
+		
+		elif type(key) == list:
+			for key in key:
+				for i in range(len(self.coilsdict[key])):
+					c1 = np.asarray(self.coilsdict[key][i])
+					x = c1.T[0]
+					y = c1.T[1]
+					z = c1.T[2]
+					o = mlab.plot3d(x, y, z, tube_radius=0.01, figure=fig, color=colors[0])
+		
+		else:
+			raise ValueError('Invalid key type')
+
+		return o, None
+
+	def write(self,fname:str,direc='',coilnames=None,periods=1,
 			  coilformat='omfit',numcoils=1):
 		"""
 		Writes coil data to a file.
 		fname: string, name of file to write to.
 		direc: string, directory to write to.
 		coilnames: list of strings, names of coils to write.
-		periods: int, number of turns per coil.
+		periods: int or dict, number of turns per coil, or dict of coil names to number of turns.
 		coilformat: string, either 'omfit' or 'gpec'.
 		numcoils: int, number of coils to write.
 		"""
@@ -309,6 +360,7 @@ class coildata:
 		elif coilformat.upper() == 'GPEC':
 			# does not yet support 'none' as coilnames, will default to writing all coils.
 			for name in self.coilsdict.keys():
+				numcoils = len(self.coilsdict[name])
 				fulllen = 0
 				firstlen = len(self.coilsdict[name][0])
 				for i in range(len(self.coilsdict[name])):
@@ -318,9 +370,15 @@ class coildata:
 				# | not sure? Just keep 1 |
 				# | total number of points in the file |
 				# | number of windings about these coils |
+					
+				if type(periods) == int:
+					periodsi = periods
+				else:
+					periodsi = int(periods[name])
+
 				header = f" {str(numcoils).rjust(4)}" +\
 					f" {'1'.rjust(4)} {str(firstlen).rjust(4)}" +\
-						f" {str(periods).rjust(4)}.00\n"
+						f" {str(periodsi).rjust(4)}.00\n"
 				# header = f" {str(numcoils).rjust(4)} {'1'.rjust(4)}\
 				#  {str(fulllen).rjust(4)} \
 				# {str(periods).rjust(4)}.00\n"
@@ -353,10 +411,11 @@ class coildata:
 		return
 
 	def coilsgenerate(self, R, Z, dR, dZ, name, \
-					  coilsshape = (1,1), numpoints = 500):
+					  coilsshape = (1,1), numpoints = 500, rot=None):
 
 	
-
+		if rot is None:
+			rot = 0
 		diffr = diffz = 0
 
 		if coilsshape[0] > 1:
@@ -367,8 +426,12 @@ class coildata:
 
 		for i in range(coilsshape[0]):
 			for j in range(coilsshape[1]):
-				rij = R + i*diffr
-				zij = Z + j*diffz
+				rij = i*diffr
+				zij = j*diffz
+
+				rijtemp = rij*np.cos(rot) - zij*np.sin(rot)
+				zij = rij*np.sin(rot) + zij*np.cos(rot) + Z
+				rij = rijtemp + R
 
 				xyzi = np.asarray([rij*np.cos(phi), \
 								   rij*np.sin(phi), \
@@ -523,6 +586,133 @@ class coildata:
 		combines if adjacent. 
 		"""
 		return
+	
+	def join(self, coillist:list[str], name:str, tolmult=2.) -> None:
+		"""
+		Combines a list of connected coils.
+		"""
+
+		starts = {}
+		ends = {}
+		clist1 = {}
+
+		maxdiff = 0
+		for coil in coillist:
+			c = self.coilsdict[coil]
+			for i, ci in enumerate(c):
+				coilname = f"{coil}_{i}"
+				starts[coilname] = ci[0]
+				ends[coilname] = ci[-1]
+				clist1[coilname] = ci
+				diff = max(np.linalg.norm(np.diff(ci, axis=0), axis=1))
+				if diff > maxdiff:
+					maxdiff = diff
+
+		tol = maxdiff*tolmult
+		
+		connectionmatrix = np.empty((len(clist1),len(clist1)))
+
+		for i, coil in enumerate(clist1.keys()):
+			for j, coil2 in enumerate(clist1.keys()):
+				if i == j:
+					connectionmatrix[i,j] = 0
+				else:
+					if np.linalg.norm(ends[coil] - starts[coil2]) < tol:
+						connectionmatrix[i,j] = 1
+					elif np.linalg.norm(ends[coil2] - starts[coil]) < tol:
+						connectionmatrix[i,j] = -1
+					else:	
+						connectionmatrix[i,j] = 0
+
+		print(connectionmatrix)
+		totalcoil = np.empty(len(clist1.keys()), dtype=object)
+		last = len(totalcoil) + 1
+		for i in range(len(clist1.keys())):
+			if sum(connectionmatrix[i]) == 1:
+				totalcoil[0] = list(clist1.keys())[i]
+				last = i
+		print(totalcoil)
+		for i in range(1,len(clist1.keys())):
+			for j in range(len(clist1.keys())):
+				if connectionmatrix[last,j] == 1:
+					totalcoil[i] = list(clist1.keys())[j]
+					print(totalcoil)
+					last = j
+					break
+		
+		conclist = []
+		for i in range(len(totalcoil)):
+			conclist.append(clist1[totalcoil[i]])
+		
+		finalcoil = np.concatenate(conclist)
+
+		self.coilsdict[name] = [finalcoil]
+
+
+		return
 
 	def getcoils(self):
 		return self.coilsdict.keys()
+	
+
+
+if __name__ == '__main__':
+	import h5py
+	import xarray as xr
+
+	cobj = coildata()
+
+	# fig = plt.figure()
+	# ax = fig.add_subplot(111, projection='3d')
+
+
+	a = h5py.File('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/PF.nc','r')
+	k = list(a.keys())[0]
+	anc = xr.open_dataset('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/PF.nc', group=k)
+
+	for name in anc.coords['coil_name'].values:
+		xyz = anc['points'].sel(coil_name=name)
+
+		if name != 'PF3':
+			xyzi = xyz[:np.argmax(np.linalg.norm(np.diff(xyz, axis=0), axis=1))+1]
+		else:
+			xyzi = xyz
+
+		# Add a column of 0s to the end of the array
+		xyz0s = np.hstack((np.asarray(xyzi), np.zeros(np.asarray(xyzi).shape[0])[:,np.newaxis]))
+		cobj.addcoil(name, group=0, xyzi=xyz0s)
+	#     ax.plot(xyzi[:, 0], xyzi[:, 1], xyzi[:, 2], label=name)
+
+
+
+	a = h5py.File('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/CS.nc','r')
+	k = list(a.keys())[0]
+	anc = xr.open_dataset('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/CS.nc', group=k)
+
+	for name in anc.coords['coil_name'].values:
+		xyz = anc['points'].sel(coil_name=name)
+		if name != 'CS1U':
+			xyzi = xyz[:np.argmax(np.linalg.norm(np.diff(xyz, axis=0), axis=1))+1]
+		else:
+			xyzi = xyz
+
+		# Add a column of 0s to the end of the array
+		xyz0s = np.hstack((np.asarray(xyzi), np.zeros(np.asarray(xyzi).shape[0])[:,np.newaxis]))
+		cobj.addcoil(name, group=0, xyzi=xyz0s)
+	#     ax.plot(xyzi[:, 0], xyzi[:, 1], xyzi[:, 2], label=name)
+
+	a = h5py.File('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/TF.nc','r')
+	k = list(a.keys())[0]
+	anc = xr.open_dataset('/Users/pharr/Downloads/ITER_windings_simon_mcintosh/TF.nc', group=k)
+
+	for name in anc.coords['coil_name'].values:
+
+		xyz = anc['points'].sel(coil_name=name)[1:]
+		xyz = xyz[:np.argmax(np.linalg.norm(np.diff(xyz, axis=0), axis=1))+1]
+		xyz0s = np.hstack((np.asarray(xyz), np.zeros(np.asarray(xyz).shape[0])[:,np.newaxis]))
+		cobj.addcoil(name, group=1, xyzi=xyz0s)
+
+
+	# fig, ax = cobj.plot([tfname for tfname in cobj.coilsdict if 'tf' in tfname.lower()])
+	fig, ax = cobj.plot()
+	mlab.show()
