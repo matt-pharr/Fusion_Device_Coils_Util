@@ -1,12 +1,15 @@
 *.ipynb
-__pycache__/*
+__pycache__
 *.npy
 *.pdf
 *.zip
-gpeccoils/*
-unperturbed/gpeccoils/*
+gpeccoils
+unperturbed
 erf_coils/
 erf_coils/*
 runall.py
 *.dat
 .DS_Store
+STP files
+old_notebooks
+point clouds
