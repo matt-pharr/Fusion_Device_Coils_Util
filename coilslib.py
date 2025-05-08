@@ -18,13 +18,14 @@ from collections import defaultdict
 import numpy as np
 from matplotlib import pyplot as plt
 from typing import Union
+import os
 
 from steplib import coil_read
 
 mayavi_successful = False
 try:
 	from mayavi import mlab
-	mayavi_successful = False
+	mayavi_successful = True
 except ImportError:
 	print('Mayavi not installed, 3D plotting will use MPL')
 
@@ -67,7 +68,7 @@ class coildata:
 	compatibility with the OMFIT coil format.
 	"""
 	def __init__(self, sourcefiles:list[str] = [''], 
-				 sftype:str = 'OMFIT', debug:bool=False):
+				 sftype:str = 'OMFIT', device='ITER', debug:bool=False):
 		"""
 		sourcefiles: list of strings, each string is a path to a coil file.
 		sftype: string, either 'OMFIT', 'GPEC', or 'STEP'.
@@ -77,7 +78,7 @@ class coildata:
 		groups = defaultdict(list)
 		self.coilsdict = coils
 		self.groupsdict = groups
-		
+		self.device = device
 		if sourcefiles != ['']:
 			self.readcoils(sourcefiles, sftype, debug)
 		else:
@@ -95,14 +96,14 @@ class coildata:
 		return s
 		
 	def readcoils(self, sourcefiles:list[str], 
-				  sftype:str='OMFIT', debug:bool=False,
+				  source_file_format:str='OMFIT', debug:bool=False,
 				    name='tempname', startfunc = lambda x: x is None,
 					 cutoffsphere = 1e6, ppm=(100*np.pi),
 					 tol=5/(100*np.pi)) -> None:
 		
 		for sourcefile in sourcefiles:
 			
-			if sftype.upper() == 'OMFIT':
+			if source_file_format.upper() == 'OMFIT':
 				with open(sourcefile, 'r') as f:
 					data = f.read()
 					print('found coils file')
@@ -131,10 +132,11 @@ class coildata:
 							continue
 					else:
 						worker.append([float(a) for a in line.split()])
-				
+				if len(coils) == 0:
+					raise ValueError("No coils found in OMFIT format. Try GPEC format?")
 				self.coilsdict.update(coils)
 				self.groupsdict.update(groups)
-			elif sftype.upper() == 'GPEC':
+			elif source_file_format.upper() == 'GPEC':
 				with open(sourcefile, 'r') as f:
 					data = f.read()
 					print('found coils file')
@@ -159,9 +161,9 @@ class coildata:
 				for i in range(int(header[0])):
 					# self.addcoil(sourcefile[-8:-4].upper(),
 					# 			 0,xyzi[i,:,:])
-					self.addcoil(sourcefile[-8:-4],0,xyzi[i,:,:])
+					self.addcoil(sourcefile.split(os.sep)[-1][len(self.device) + 1:-4],0,xyzi[i,:,:])
 					
-			elif sftype.upper() == 'STEP':
+			elif source_file_format.upper() == 'STEP':
 				print('found STEP file')
 				# ppm = 100*np.pi
 				xyzi = coil_read([sourcefile], pointspermeter=ppm, 
@@ -181,9 +183,83 @@ class coildata:
 
 	def plot(self, key:Union[str,list]='all', rmax:float=3.,
 			 zmax:float=3,points='-', legend=False, 
-			 colorlist = None, duallegend=None, fig=None, ax=None):
+			 colorlist = None, duallegend=None, fig=None, ax=None, use_mayavi=False, sparsity=1):
+		return self.plot3d(key, rmax, zmax, points, legend, colorlist, duallegend, fig, ax, use_mayavi, sparsity)
+	
+	def plot2d(self, key:Union[str,list]='all', colorlist=None, fig=None, ax=None, figsize=(10,6), points='-', legendlabels=None, plottype='zphi', linewidth=0.75):
+		# Convert to cylindrical coordinates
+		if plottype.lower() == 'zphi':
+			pass
+		elif plottype.lower() == 'rphi':
+			return self.__plot2d_rphi(key=key, colorlist=colorlist, fig=fig, ax=ax, figsize=figsize, points=points, legendlabels=legendlabels, linewidth=linewidth)
+		else:
+			print("WARNING: plottype not recognized, using zphi instead")
+			pass
+
+		if fig is None:
+			fig = plt.figure(figsize=figsize)
+		if ax is None:
+			ax = fig.add_subplot(111)
+		else:
+			pass
+
+		if type(key) == str:
+			if key == 'all':
+				keylist = list(self.coilsdict.keys())
+			else:
+				keylist = [key]
+		else:
+			keylist = key
 		
-		if not mayavi_successful:
+		if type(colorlist) == list:
+			colors = colorlist
+		elif type(colorlist) == str:
+			colors = len(keylist)*[colorlist]
+		else:
+			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+		
+		if legendlabels is None:
+			legendlabels = [keyn.upper() for keyn in keylist]
+		elif type(legendlabels) == str:
+			legendlabels = [legendlabels] + (len(keylist)-1)*[None]
+		elif type(legendlabels) == list:
+			if len(legendlabels) != len(keylist):
+				print("WARNING: legendlabels list is not the same length as keylist,",
+					  "using default labels instead.")
+				legendlabels = [keyn.upper() for keyn in keylist]
+			else:
+				pass
+		else:
+			print("WARNING: legendlabels is not a string or list, using default labels instead.")
+			legendlabels = [keyn.upper() for keyn in keylist]
+
+
+		for j, keyn in enumerate(keylist):
+			for i in range(len(self.coilsdict[keyn])):
+				c1 = np.asarray(self.coilsdict[keyn][i])
+				x = c1.T[0]
+				y = c1.T[1]
+				z = c1.T[2]
+				
+				R = np.sqrt(x**2 + y**2)
+				# z = z
+				phi = (np.arctan2(y,x) % (2*np.pi)) / np.pi
+
+				ax.plot(phi, z, points, color=colors[j%len(colors)], label=legendlabels[j], linewidth=linewidth)
+				ax.set_xticks(np.linspace(0, 2, 5))
+				ax.set_xticklabels(['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
+				ax.set_xlabel(r'Machine Angle $\phi$')
+				ax.set_ylabel('Z (m)')
+
+		return fig, ax
+		
+
+	def plot3d(self, key:Union[str,list]='all', rmax:float=3.,
+			 zmax:float=3,points='-', legend=False, 
+			 colorlist = None, duallegend=None, fig=None, ax=None, use_mayavi=False, sparsity=1):
+		
+		if not (mayavi_successful and use_mayavi):
+			print('Using MPL')
 			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 			if fig is None:
 				fig = plt.figure(figsize=(10,6))
@@ -213,9 +289,9 @@ class coildata:
 
 					for i in range(len(self.coilsdict[keyn])):
 						c1 = np.asarray(self.coilsdict[keyn][i])
-						x = c1.T[0]
-						y = c1.T[1]
-						z = c1.T[2]
+						x = c1.T[0][::sparsity]
+						y = c1.T[1][::sparsity]
+						z = c1.T[2][::sparsity]
 						ax.plot(x,y,z,points,color=\
 								colors[j%len(colors)], 
 								label=keyn.upper())
@@ -227,9 +303,9 @@ class coildata:
 					colors = [colorlist]
 				for i in range(len(self.coilsdict[key])):
 					c1 = np.asarray(self.coilsdict[key][i])
-					x = c1.T[0]
-					y = c1.T[1]
-					z = c1.T[2]
+					x = c1.T[0][::sparsity]
+					y = c1.T[1][::sparsity]
+					z = c1.T[2][::sparsity]
 					ax.plot(x,y,z,points,color = colors[0], 
 			 					label = key.upper())
 				print(len(self.coilsdict[key]))
@@ -244,9 +320,9 @@ class coildata:
 				for i in range(len(self.coilsdict[k])):
 					
 					c1 = np.asarray(self.coilsdict[k][i])
-					x = c1.T[0]
-					y = c1.T[1]
-					z = c1.T[2]
+					x = c1.T[0][::sparsity]
+					y = c1.T[1][::sparsity]
+					z = c1.T[2][::sparsity]
 					if i == 0:
 						ax.plot(x,y,z,color=colors[j%len(colors)],label=k.upper())
 					else:
@@ -307,6 +383,67 @@ class coildata:
 
 		return o, None
 
+
+	def __plot2d_rphi(self, key:Union[str,list], colorlist=None, fig=None, ax=None, figsize=(10,6), points='-', legendlabels=None, linewidth=0.75):
+
+		if fig is None:
+			fig = plt.figure(figsize=figsize)
+		if ax is None:
+			ax = fig.add_subplot(111)
+		else:
+			pass
+
+		if type(key) == str:
+			if key == 'all':
+				keylist = list(self.coilsdict.keys())
+			else:
+				keylist = [key]
+		else:
+			keylist = key
+		
+		if type(colorlist) == list:
+			colors = colorlist
+		elif type(colorlist) == str:
+			colors = len(keylist)*[colorlist]
+		else:
+			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+		
+		if legendlabels is None:
+			legendlabels = [keyn.upper() for keyn in keylist]
+		elif type(legendlabels) == str:
+			legendlabels = [legendlabels] + (len(keylist)-1)*[None]
+		elif type(legendlabels) == list:
+			if len(legendlabels) != len(keylist):
+				print("WARNING: legendlabels list is not the same length as keylist,",
+					  "using default labels instead.")
+				legendlabels = [keyn.upper() for keyn in keylist]
+			else:
+				pass
+		else:
+			print("WARNING: legendlabels is not a string or list, using default labels instead.")
+			legendlabels = [keyn.upper() for keyn in keylist]
+
+
+		for j, keyn in enumerate(keylist):
+			for i in range(len(self.coilsdict[keyn])):
+				c1 = np.asarray(self.coilsdict[keyn][i])
+				x = c1.T[0]
+				y = c1.T[1]
+				# z = c1.T[2]
+				
+				R = np.sqrt(x**2 + y**2)
+				# z = z
+				phi = (np.arctan2(y,x) % (2*np.pi)) / np.pi
+
+				ax.plot(phi, R, points, color=colors[j%len(colors)], label=legendlabels[j], linewidth=linewidth)
+				ax.set_xticks(np.linspace(0, 2, 5))
+				ax.set_xticklabels(['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
+				ax.set_xlabel(r'Machine Angle $\phi$')
+				ax.set_ylabel('R (m)')
+
+		return fig, ax
+
+
 	def write(self,fname:str,direc='',coilnames=None,periods=1,
 			  coilformat='omfit',numcoils=1):
 		"""
@@ -318,6 +455,13 @@ class coildata:
 		coilformat: string, either 'omfit' or 'gpec'.
 		numcoils: int, number of coils to write.
 		"""
+
+		if coilnames is None:
+			coilnames = list(self.coilsdict.keys())
+		elif type(coilnames) == str:
+			coilnames = [coilnames]
+		else:
+			pass
 			
 		if coilformat.upper() == 'OMFIT':
 			header = f"periods {periods}\nbegin filaments\
@@ -359,7 +503,7 @@ class coildata:
 		
 		elif coilformat.upper() == 'GPEC':
 			# does not yet support 'none' as coilnames, will default to writing all coils.
-			for name in self.coilsdict.keys():
+			for name in coilnames:
 				numcoils = len(self.coilsdict[name])
 				fulllen = 0
 				firstlen = len(self.coilsdict[name][0])
@@ -517,6 +661,8 @@ class coildata:
 
 			if centerpoint == 'center':
 				centerpoint = np.mean(self.coilsdict[part], axis=(0,1))
+			elif centerpoint == 'origin':
+				centerpoint = np.asarray([0,0,0,0])
 			realcenter = np.asarray([centerpoint[0],centerpoint[1],centerpoint[2],0])
 
 
@@ -609,7 +755,6 @@ class coildata:
 					maxdiff = diff
 
 		tol = maxdiff*tolmult
-		
 		connectionmatrix = np.empty((len(clist1),len(clist1)))
 
 		for i, coil in enumerate(clist1.keys()):

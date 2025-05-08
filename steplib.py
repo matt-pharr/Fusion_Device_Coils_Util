@@ -24,16 +24,18 @@ LICENSE file in the root directory of this source tree.
 
 
 
+# from multiprocessing import Value
+from scipy.interpolate import CubicSpline
 import numpy as np
 import matplotlib.pyplot as plt
 # from steputils import p21
 from OCC.Extend.TopologyUtils import TopologyExplorer
 from OCC.Extend.DataExchange import read_step_file
-from OCC.Core.gp import gp_Pnt
+#from OCC.Core.gp import gp_Pnt
 
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.TopoDS import TopoDS_Wire, topods, TopoDS_Iterator
-from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopoDS import topods, TopoDS_Iterator#, TopoDS_Wire
+#from OCC.Core.TopExp import TopExp_Explorer
 # %matplotlib qt
 
 debug_level = 0;
@@ -41,7 +43,7 @@ debug_level = 0;
 # Function to sample points along the curve
 def sample_curve_points(curve, u_start, u_end, num_samples):
     """Sample points along a curve"""
-    usample = np.linspace(u_start,u_end,num_samples)
+    usample = np.linspace(u_start,u_end,int(num_samples))
     # du = (u_end-u_start)/100
     xyzwire = []
     for ui in usample:
@@ -50,9 +52,9 @@ def sample_curve_points(curve, u_start, u_end, num_samples):
     return np.asarray(xyzwire)
 
 # Function to get the arc length of a curve
-def get_arc_length(curve, u_start, u_end):
+def get_arc_length(curve, u_start, u_end, num_samples=100):
     """Get the arc length of a curve"""
-    arclength = np.sum(np.linalg.norm(np.diff(sample_curve_points(curve, u_start, u_end, 100),axis=0),axis=1))
+    arclength = np.sum(np.linalg.norm(np.diff(sample_curve_points(curve, u_start, u_end, int(num_samples)),axis=0),axis=1))
     return arclength
 
 # Function to test if the new segment is connected to the previous segment
@@ -110,53 +112,124 @@ def euc_dist(xyz1, xyz2):
     """Euclidean distance between two points"""
     return np.linalg.norm(xyz1-xyz2)
 
-def wire_connecter(xyz:list, tolerance):
+def wire_connecter(splices:list, tolerance, pointspermeter):
     """Find and join connected wires"""
-    connected_remaining = True
-    while connected_remaining:
-        starts = [xyz[i][0] for i in range(len(xyz))]
-        ends = [xyz[i][-1] for i in range(len(xyz))]
-        break_flag = False
-        for i in range(len(xyz)):
-            for k in range(len(xyz)):
-                if i != k:
-                    if euc_dist(ends[i], starts[k]) < tolerance:
-                        if debug_level > 0:
-                            print("Found connected xyz.")
-                        xyz[i] = np.concatenate((xyz[i],xyz[k]))
-                        xyz.pop(k)
-                        starts.pop(k)
-                        ends.pop(k)
-                        break_flag = True
-                        break
-                    elif euc_dist(ends[i], ends[k]) < tolerance:
-                        xyz[i] = np.concatenate((xyz[i],xyz[k][::-1]))
-                        xyz.pop(k)
-                        starts.pop(k)
-                        ends.pop(k)
-                        break_flag = True
-                        break
-                    elif euc_dist(starts[i], starts[k]) < tolerance:
-                        xyz[i] = np.concatenate((xyz[k][::-1],xyz[i]))
-                        xyz.pop(k)
-                        starts.pop(k)
-                        ends.pop(k)
-                        break_flag = True
-                        break
-            if break_flag:
-                break
-        if debug_level > 0:
-            print("break_flag:",break_flag)
-        
-        # If no connections are found, break the loop
-        if not break_flag:
-            connected_remaining = False
+    
+    starts = np.array([splices[i][0] for i in range(len(splices))])
+    ends = np.array([splices[i][-1] for i in range(len(splices))])
 
-    starts = [xyz[i][0] for i in range(len(xyz))]
-    ends = [xyz[i][-1] for i in range(len(xyz))]
-    for i in range(len(starts)):
-        if starts[i][2] > ends[i][2]:
-            xyz[i] = xyz[i][::-1]
+    head_to_tail = np.linalg.norm(starts[:,None,:] - ends[None,:,:], axis=2) + 3*np.eye(len(splices))
+    tail_to_tail = np.linalg.norm(ends[:,None,:] - ends[None,:,:], axis=2) + 3*np.eye(len(splices))
+    head_to_head = np.linalg.norm(starts[:,None,:] - starts[None,:,:], axis=2) + 3*np.eye(len(splices))
+    tail_to_head = np.linalg.norm(ends[:,None,:] - starts[None,:,:], axis=2) + 3*np.eye(len(splices))
+    noconnect = []
+    for row in range(len(starts)):
+        rowsum1,rowsum2,rowsum3,rowsum4 = np.sum(head_to_head[row,:] < tolerance),np.sum(tail_to_tail[row,:] < tolerance),np.sum(head_to_tail[row,:] < tolerance), np.sum(tail_to_head[row,:] < tolerance)
+        if rowsum1 > 1:
+            raise ValueError(f'row {row} has {rowsum1} connections in head_to_head. Try a smaller tolerance.')
+        if rowsum2 > 1:
+            raise ValueError(f'splice {row} has {rowsum2} connections in tail_to_tail. Try a smaller tolerance.')
+        if rowsum3 > 1:
+            raise ValueError(f'splice {row} has {rowsum3} connections in head_to_tail. Try a smaller tolerance.')
+        if rowsum4 > 1:
+            raise ValueError(f'splice {row} has {rowsum4} connections in tail_to_head. Try a smaller tolerance.')
+        if rowsum1 + rowsum2 + rowsum3 + rowsum4 == 0:
+            raise Warning(f'splice {row} has no connections. Try a larger tolerance.')
+            noconnect.append(row)
+    if len(noconnect) > 0:
+        raise Warning(f"Found {len(noconnect)} splices with no connections.")
+    
+    connections = set()
+    connections_dict = {}
+    for i in range(len(splices)):
+        htts = np.where(head_to_tail[i] < tolerance)[0]
+        hths = np.where(head_to_head[i] < tolerance)[0]
+        ttts = np.where(tail_to_tail[i] < tolerance)[0]
+        for j in htts:
+            connections.add(((i,0),(j,1)))
+        for j in hths:
+            connections.add(((i,0),(j,0)))
+        for j in ttts:
+            connections.add(((i,1),(j,1)))
+    
+    for c in connections:
+        connections_dict[c[0]] = c[1]
+        connections_dict[c[1]] = c[0]
+    
+    # Order all the splices based on the connections
+    splicenums = list(range(len(splices)))
+    coils = []
+    while len(splicenums) > 0:
+        # list of tuples (index, indexdirection: -1 or 1)
+        coil = []
+        coilheaddone = False
+        coiltaildone = False
+        coil.append((splicenums.pop(0), 1))
+        nextend = (coil[0][0], 1)
+        while not coiltaildone:
+            try:
+                nextitem = connections_dict[nextend]
+            except KeyError:
+                coiltaildone = True
+                continue
+
+            if nextitem[1] == 0:
+                coil.append((nextitem[0],1))
+                nextend = (nextitem[0], 1)
+            elif nextitem[1] == 1:
+                coil.append((nextitem[0],-1))
+                nextend = (nextitem[0], 0)
+            else:
+                print('Error: next item not 0 or 1')
+                break
+            
+            splicenums.remove(nextitem[0])
+        
+        nextend = (coil[0][0], 0)
+        while not coilheaddone:
+            try:
+                nextitem = connections_dict[nextend]
+            except KeyError:
+                coilheaddone = True
+                continue
+
+            if nextitem[1] == 1:
+                coil.insert(0, (nextitem[0],1))
+                nextend = (nextitem[0], 0)
+            elif nextitem[1] == 0:
+                coil.insert(0, (nextitem[0],-1))
+                nextend = (nextitem[0], 1)
+            else:
+                print('Error: next item not 0 or 1')
+                break
+
+            splicenums.remove(nextitem[0])
+
+        coils.append(coil)
+        if debug_level > 0:
+            print(f"Found coil with {len(coil)} splices.")
+        
+    # Make the actual point clouds
+
+    xyz = []
+    for coil in coils:
+        newcoil = []
+        for i in range(len(coil)):
+            newcoil.extend(splices[coil[i][0]][::coil[i][1]])
+
+        coillen = np.sum(np.linalg.norm(np.diff(newcoil, axis=0), axis=1))
+        lengthfunc = np.cumsum(np.linalg.norm(np.diff(newcoil, axis=0, prepend=0), axis=1))/coillen
+        mask = np.diff(lengthfunc, prepend=-0.1) > 0
+        lengthfuncinterp = lengthfunc[mask]-lengthfunc[mask][0]
+        # print(len(lengthfunc), len(newcoil))
+        coilinterp = CubicSpline(x=lengthfuncinterp, y=np.asarray(newcoil)[mask], axis=0)
+        numpoints = int(coillen*pointspermeter)
+
+        newcoil = coilinterp(np.linspace(0, 1, numpoints))
+        newcoil = np.asarray(newcoil)
+
+        xyz.append(np.asarray(newcoil))
+
     return xyz
 
 # Function to extract a coil from a wire
@@ -255,33 +328,65 @@ def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., for
 
     else:
         # If wire_iterator is not a TopoDS_Iterator, assume it is a list of edges
-        xyzpre = []
+        splices = []
 
-        for j, edge in list(enumerate(wire_iterator)):
+        for j, edge in enumerate(list(wire_iterator)):
             if debug_level > 1:
                 print("segment:",j)
             curve, u_start, u_end = BRep_Tool().Curve(edge)
 
             # Set even spacing of points between coils
             arclength = get_arc_length(curve, u_start, u_end)
-            numpoints = int(arclength*pointspermeter)
+            if arclength > 1:
+                arclengthold = arclength
+                arclength = get_arc_length(curve, u_start, u_end, 100*arclength)
+            if arclength * pointspermeter < 15:
+                numpoints = 15
+            else:
+                numpoints = int(arclength*pointspermeter)
             if debug_level > 1:
                 print(numpoints)
-            
             # Rasterize points on the curve
             xyzwire = sample_curve_points(curve, u_start, u_end, numpoints)
             if len(xyzwire) == 0:
                 continue
             # Remove points outside of the cutoff sphere
             # print(xyzwire.shape)
-            dist = np.linalg.norm(xyzwire, axis=1)
-            mask = dist <= cutoffsphere
-            xyzwire = xyzwire[mask]
+            if cutoffsphere != -1:
+                dist = np.linalg.norm(xyzwire, axis=1)
+                mask = dist <= cutoffsphere
+                xyzwire = xyzwire[mask]
 
-            xyzpre.append(np.asarray(xyzwire))
+            splices.append(np.asarray(xyzwire))
+        
+        # Clean up duplicate splices if present
+        starts = [splices[i][0] for i in range(len(splices))]
+        ends = [splices[i][-1] for i in range(len(splices))]
+
+        same = []
+        
+        for i in range(len(splices)):
+            for j in range(i+1, len(splices)):
+                if np.linalg.norm(starts[i]-starts[j])< 1e-4 and np.linalg.norm(ends[i]-ends[j]) < 1e-4:
+                    # print(f'Splices {i} and {j} are the same... {np.linalg.norm(starts[i]-starts[j])} {np.linalg.norm(ends[i]-ends[j])}')
+                    # # print(f'  {len(splices[i])} {len(splices[j])}')
+                    # print()
+                    same.append((i,j))
+                elif np.linalg.norm(starts[i]-ends[j])< 1e-4 and np.linalg.norm(ends[i]-starts[j]) < 1e-4:
+                    # print(f'Splices {i} and {j} seem the same... {np.linalg.norm(starts[i]-ends[j])} {np.linalg.norm(ends[i]-starts[j])}')
+                    # print(f'  {len(splices[i])} {len(splices[j])}')
+                    # print()
+                    same.append((i,j))
+        
+        same = sorted(same, key=lambda x: max(x[0], x[1]))
+
+        for s in same[::-1]:
+            maxindex = max(s)
+            # print(f'popping splice {maxindex}')
+            splices.pop(maxindex)
 
         # Find connected wires and join them
-        xyz = wire_connecter(xyzpre, tolerance)
+        xyz = wire_connecter(splices, tolerance, pointspermeter)
         
         # Check if the coil should be reversed
         for i in range(len(xyz)):
@@ -326,7 +431,7 @@ def coil_read(sourcefiles:list[str] = [''],
                 except Exception as e:
                     print("Error: no wires or edges found in file.")
                     print(e)
-                    raise ValueError
+                    raise ValueError(e)
 
         else:
             coils.extend(coil_extract(t.edges(), pointspermeter, tolerance, force, startfunc, cutoffsphere))
