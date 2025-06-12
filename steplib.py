@@ -123,22 +123,75 @@ def wire_connecter(splices:list, tolerance, pointspermeter):
     head_to_head = np.linalg.norm(starts[:,None,:] - starts[None,:,:], axis=2) + 3*np.eye(len(splices))
     tail_to_head = np.linalg.norm(ends[:,None,:] - starts[None,:,:], axis=2) + 3*np.eye(len(splices))
     noconnect = []
+    doubleconnect = []
     for row in range(len(starts)):
+        if row in doubleconnect:
+            continue
         rowsum1,rowsum2,rowsum3,rowsum4 = np.sum(head_to_head[row,:] < tolerance),np.sum(tail_to_tail[row,:] < tolerance),np.sum(head_to_tail[row,:] < tolerance), np.sum(tail_to_head[row,:] < tolerance)
         if rowsum1 > 1:
-            raise ValueError(f'row {row} has {rowsum1} connections in head_to_head. Try a smaller tolerance.')
+            # Plot offending splines and raise error
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(splices[row][:,0], splices[row][:,1], splices[row][:,2], label=f'Splice {row}')
+            badrows = np.where(head_to_head[row,:] < tolerance)[0]
+            for badrow in badrows:
+                ax.plot(splices[badrow][:,0], splices[badrow][:,1], splices[badrow][:,2], label=f'Bad Splice {badrow}', linestyle='--')
+            ax.set_title(f'Splice {row} has {rowsum1} connections in head_to_head of distances {head_to_head[row,head_to_head[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
+            ax.legend()
+            plt.show()
+            doubleconnect.append(row)
+            doubleconnect.extend(list(badrows))
+            print(f'splice {row} has {rowsum1} connections in head_to_head of distances {head_to_head[row,head_to_head[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
         if rowsum2 > 1:
-            raise ValueError(f'splice {row} has {rowsum2} connections in tail_to_tail. Try a smaller tolerance.')
+            # Plot offending splines and raise error
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(splices[row][:,0], splices[row][:,1], splices[row][:,2], label=f'Splice {row}')
+            badrows = np.where(tail_to_tail[row,:] < tolerance)[0]
+            for badrow in badrows:
+                ax.plot(splices[badrow][:,0], splices[badrow][:,1], splices[badrow][:,2], label=f'Bad Splice {badrow}', linestyle='--')
+            ax.set_title(f'Splice {row} has {rowsum2} connections in tail_to_tail of distances {tail_to_tail[row,tail_to_tail[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
+            ax.legend()
+            plt.show()
+            doubleconnect.append(row)
+            doubleconnect.extend(list(badrows))
+            print(f'splice {row} has {rowsum2} connections in tail_to_tail of distances {tail_to_tail[row,tail_to_tail[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
         if rowsum3 > 1:
-            raise ValueError(f'splice {row} has {rowsum3} connections in head_to_tail. Try a smaller tolerance.')
+            # Plot offending splines and raise error
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(splices[row][:,0], splices[row][:,1], splices[row][:,2], label=f'Splice {row}')
+            badrows = np.where(head_to_tail[row,:] < tolerance)[0]
+            for badrow in badrows:
+                ax.plot(splices[badrow][:,0], splices[badrow][:,1], splices[badrow][:,2], label=f'Bad Splice {badrow}', linestyle='--')
+            ax.set_title(f'Splice {row} has {rowsum3} connections in head_to_tail of distances {head_to_tail[row,head_to_tail[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
+            ax.legend()
+            plt.show()
+            doubleconnect.append(row)
+            doubleconnect.extend(list(badrows))
+            print(f'splice {row} has {rowsum3} connections in head_to_tail of distances {head_to_tail[row,head_to_tail[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
         if rowsum4 > 1:
-            raise ValueError(f'splice {row} has {rowsum4} connections in tail_to_head. Try a smaller tolerance.')
+            # Plot offending splines and raise error
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            ax.plot(splices[row][:,0], splices[row][:,1], splices[row][:,2], label=f'Splice {row}')
+            badrows = np.where(tail_to_head[row,:] < tolerance)[0]
+            for badrow in badrows:
+                ax.plot(splices[badrow][:,0], splices[badrow][:,1], splices[badrow][:,2], label=f'Bad Splice {badrow}', linestyle='--')
+            ax.set_title(f'Splice {row} has {rowsum4} connections in tail_to_head of distances {tail_to_head[row,tail_to_head[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
+            ax.legend()
+            plt.show()
+            doubleconnect.append(row)
+            doubleconnect.extend(list(badrows))
+            print(f'splice {row} has {rowsum4} connections in tail_to_head of distances {tail_to_head[row,tail_to_head[row,:] < tolerance]} to splines {np.where(head_to_head[row,:] < tolerance)[0]} with tolerance {tolerance}. Try a smaller tolerance.')
         if rowsum1 + rowsum2 + rowsum3 + rowsum4 == 0:
-            raise Warning(f'splice {row} has no connections. Try a larger tolerance.')
+            # raise Warning(f'splice {row} has no connections. Try a larger tolerance.')
             noconnect.append(row)
     if len(noconnect) > 0:
-        raise Warning(f"Found {len(noconnect)} splices with no connections.")
-    
+        # raise Warning(f"Found {len(noconnect)} splices with no connections.")
+        print(f"Found {len(noconnect)} splices with no connections.")
+    if len(doubleconnect) > 0:
+        raise Warning(f"Found {len(doubleconnect)} splices with multiple connections. Check plots for details.")
     connections = set()
     connections_dict = {}
     for i in range(len(splices)):
@@ -233,7 +286,7 @@ def wire_connecter(splices:list, tolerance, pointspermeter):
     return xyz
 
 # Function to extract a coil from a wire
-def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., force:bool=False, startfunc=lambda x: False, cutoffsphere:float =-1):
+def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., force:bool=False, startfunc=lambda x: False, cutoffsphere:float =-1, manual_discard:list = []) -> np.ndarray:
     """
     Extract a coil from a wire.
     wire_iterator: TopoDS_Iterator
@@ -368,21 +421,24 @@ def coil_extract(wire_iterator, pointspermeter:float, tolerance:float = -1., for
         for i in range(len(splices)):
             for j in range(i+1, len(splices)):
                 if np.linalg.norm(starts[i]-starts[j])< 1e-4 and np.linalg.norm(ends[i]-ends[j]) < 1e-4:
-                    # print(f'Splices {i} and {j} are the same... {np.linalg.norm(starts[i]-starts[j])} {np.linalg.norm(ends[i]-ends[j])}')
-                    # # print(f'  {len(splices[i])} {len(splices[j])}')
-                    # print()
+                    print(f'Splices {i} and {j} are the same... {np.linalg.norm(starts[i]-starts[j])} {np.linalg.norm(ends[i]-ends[j])}')
+                    # print(f'  {len(splices[i])} {len(splices[j])}')
+                    print()
                     same.append((i,j))
                 elif np.linalg.norm(starts[i]-ends[j])< 1e-4 and np.linalg.norm(ends[i]-starts[j]) < 1e-4:
-                    # print(f'Splices {i} and {j} seem the same... {np.linalg.norm(starts[i]-ends[j])} {np.linalg.norm(ends[i]-starts[j])}')
-                    # print(f'  {len(splices[i])} {len(splices[j])}')
-                    # print()
+                    print(f'Splices {i} and {j} seem the same... {np.linalg.norm(starts[i]-ends[j])} {np.linalg.norm(ends[i]-starts[j])}')
+                    print(f'  {len(splices[i])} {len(splices[j])}')
+                    print()
                     same.append((i,j))
+        if len(manual_discard) > 0:
+            print(f"Manually discarding splices {manual_discard}")
+            for i in manual_discard:
+                same.append((i,i))
         
         same = sorted(same, key=lambda x: max(x[0], x[1]))
-
         for s in same[::-1]:
             maxindex = max(s)
-            # print(f'popping splice {maxindex}')
+            print(f'popping splice {maxindex}')
             splices.pop(maxindex)
 
         # Find connected wires and join them
@@ -400,7 +456,8 @@ def coil_read(sourcefiles:list[str] = [''],
                tolerance:float = -1., 
                force:bool=False,
                startfunc=lambda x: False, 
-               cutoffsphere:float = 1e6) -> list[np.ndarray]:
+               cutoffsphere:float = 1e6,
+               manual_discard=[]) -> list[np.ndarray]:
     """
     Read in a coil from a STEP file.
     sourcefiles: list of strings containing the path to the STEP file.
@@ -426,12 +483,7 @@ def coil_read(sourcefiles:list[str] = [''],
                 coils.append(xyz)
             if len(coils) == 0:
                 print("No wires found in file.")
-                try: 
-                    coils.extend(coil_extract(t.edges(), pointspermeter, tolerance, force, startfunc, cutoffsphere))
-                except Exception as e:
-                    print("Error: no wires or edges found in file.")
-                    print(e)
-                    raise ValueError(e)
+                coils.extend(coil_extract(t.edges(), pointspermeter, tolerance, force, startfunc, cutoffsphere, manual_discard=manual_discard))
 
         else:
             coils.extend(coil_extract(t.edges(), pointspermeter, tolerance, force, startfunc, cutoffsphere))

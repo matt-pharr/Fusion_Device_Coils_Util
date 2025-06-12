@@ -99,7 +99,8 @@ class coildata:
 				  source_file_format:str='OMFIT', debug:bool=False,
 				    name='tempname', startfunc = lambda x: x is None,
 					 cutoffsphere = 1e6, ppm=(100*np.pi),
-					 tol=5/(100*np.pi)) -> None:
+					 tol=5/(100*np.pi),
+					 manual_discard=[]) -> None:
 		
 		for sourcefile in sourcefiles:
 			
@@ -169,7 +170,8 @@ class coildata:
 				xyzi = coil_read([sourcefile], pointspermeter=ppm, 
 								 tolerance=tol, force=False, 
 								 startfunc=startfunc, 
-								 cutoffsphere=cutoffsphere)
+								 cutoffsphere=cutoffsphere,
+								 manual_discard=manual_discard)
 				coilnum = len(xyzi)
 				for i in range(coilnum):
 					coil = np.empty((len(xyzi[i]),4))
@@ -186,16 +188,7 @@ class coildata:
 			 colorlist = None, duallegend=None, fig=None, ax=None, use_mayavi=False, sparsity=1):
 		return self.plot3d(key, rmax, zmax, points, legend, colorlist, duallegend, fig, ax, use_mayavi, sparsity)
 	
-	def plot2d(self, key:Union[str,list]='all', colorlist=None, fig=None, ax=None, figsize=(10,6), points='-', legendlabels=None, plottype='zphi', linewidth=0.75):
-		# Convert to cylindrical coordinates
-		if plottype.lower() == 'zphi':
-			pass
-		elif plottype.lower() == 'rphi':
-			return self.__plot2d_rphi(key=key, colorlist=colorlist, fig=fig, ax=ax, figsize=figsize, points=points, legendlabels=legendlabels, linewidth=linewidth)
-		else:
-			print("WARNING: plottype not recognized, using zphi instead")
-			pass
-
+	def plot2d(self, key:Union[str,list]='all', colorlist=None, fig=None, ax=None, figsize=(10,6), points='-', legendlabels=None, plottype='zphi', linewidth=0.75, showlegend=True, axislabels=True):
 		if fig is None:
 			fig = plt.figure(figsize=figsize)
 		if ax is None:
@@ -242,14 +235,52 @@ class coildata:
 				z = c1.T[2]
 				
 				R = np.sqrt(x**2 + y**2)
-				# z = z
+				z = z
 				phi = (np.arctan2(y,x) % (2*np.pi)) / np.pi
 
-				ax.plot(phi, z, points, color=colors[j%len(colors)], label=legendlabels[j], linewidth=linewidth)
-				ax.set_xticks(np.linspace(0, 2, 5))
-				ax.set_xticklabels(['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
-				ax.set_xlabel(r'Machine Angle $\phi$')
-				ax.set_ylabel('Z (m)')
+				xticks = None
+				xticklabels = None
+
+				if plottype == 'rphi':
+					xx = phi
+					yy = R
+					xticks = np.linspace(0, 2, 5)
+					xticklabels = ['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
+					xlabel = r'Machine Angle $\phi$'
+					ylabel = 'R (m)'
+				elif plottype == 'rz':
+					xx = z
+					yy = R
+					xlabel = 'Z (m)'
+					ylabel = 'R (m)'
+				elif plottype == 'zphi':
+					xx = phi
+					yy = z
+					xticks = np.linspace(0, 2, 5)
+					xticklabels = ['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$']
+					xlabel = r'Machine Angle $\phi$'
+					ylabel = 'Z (m)'
+				elif plottype == 'xy':
+					xx = x
+					yy = y
+					xlabel = 'X (m)'
+					ylabel = 'Y (m)'
+				else:
+					raise ValueError("Invalid plottype. Choose from 'rphi', 'rz', 'zphi', or 'xy'.")
+
+
+				ax.plot(xx, yy, points, color=colors[j%len(colors)], label=legendlabels[j], linewidth=linewidth)
+				if xticks is not None:
+					ax.set_xticks(xticks)
+				if xticklabels is not None:
+					ax.set_xticklabels(xticklabels)
+				if axislabels:
+					ax.set_xlabel(xlabel)
+					ax.set_ylabel(ylabel)
+
+		if showlegend:
+			l1 = plt.legend(loc=1)
+			ax.add_artist(l1)
 
 		return fig, ax
 		
@@ -382,67 +413,6 @@ class coildata:
 			raise ValueError('Invalid key type')
 
 		return o, None
-
-
-	def __plot2d_rphi(self, key:Union[str,list], colorlist=None, fig=None, ax=None, figsize=(10,6), points='-', legendlabels=None, linewidth=0.75):
-
-		if fig is None:
-			fig = plt.figure(figsize=figsize)
-		if ax is None:
-			ax = fig.add_subplot(111)
-		else:
-			pass
-
-		if type(key) == str:
-			if key == 'all':
-				keylist = list(self.coilsdict.keys())
-			else:
-				keylist = [key]
-		else:
-			keylist = key
-		
-		if type(colorlist) == list:
-			colors = colorlist
-		elif type(colorlist) == str:
-			colors = len(keylist)*[colorlist]
-		else:
-			colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
-		
-		if legendlabels is None:
-			legendlabels = [keyn.upper() for keyn in keylist]
-		elif type(legendlabels) == str:
-			legendlabels = [legendlabels] + (len(keylist)-1)*[None]
-		elif type(legendlabels) == list:
-			if len(legendlabels) != len(keylist):
-				print("WARNING: legendlabels list is not the same length as keylist,",
-					  "using default labels instead.")
-				legendlabels = [keyn.upper() for keyn in keylist]
-			else:
-				pass
-		else:
-			print("WARNING: legendlabels is not a string or list, using default labels instead.")
-			legendlabels = [keyn.upper() for keyn in keylist]
-
-
-		for j, keyn in enumerate(keylist):
-			for i in range(len(self.coilsdict[keyn])):
-				c1 = np.asarray(self.coilsdict[keyn][i])
-				x = c1.T[0]
-				y = c1.T[1]
-				# z = c1.T[2]
-				
-				R = np.sqrt(x**2 + y**2)
-				# z = z
-				phi = (np.arctan2(y,x) % (2*np.pi)) / np.pi
-
-				ax.plot(phi, R, points, color=colors[j%len(colors)], label=legendlabels[j], linewidth=linewidth)
-				ax.set_xticks(np.linspace(0, 2, 5))
-				ax.set_xticklabels(['0', r'$\pi/2$', r'$\pi$', r'$3\pi/2$', r'$2\pi$'])
-				ax.set_xlabel(r'Machine Angle $\phi$')
-				ax.set_ylabel('R (m)')
-
-		return fig, ax
-
 
 	def write(self,fname:str,direc='',coilnames=None,periods=1,
 			  coilformat='omfit',numcoils=1):
@@ -800,7 +770,6 @@ class coildata:
 		return self.coilsdict.keys()
 	
 
-
 if __name__ == '__main__':
 	import h5py
 	import xarray as xr
@@ -861,3 +830,85 @@ if __name__ == '__main__':
 	# fig, ax = cobj.plot([tfname for tfname in cobj.coilsdict if 'tf' in tfname.lower()])
 	fig, ax = cobj.plot()
 	mlab.show()
+
+
+def make_diagnostic_comparison_plots(coilobj_new:coildata,
+									 coilobj_old:coildata,
+									 new_run_name:str='new',
+									 old_run_name:str='old',
+									 part:str='cs',
+									 keys:list[str]=[],
+									 layout:tuple=(1,1),
+									 figsize=(12, 10),
+									 showlegend=True,
+									 suptitle='',
+									 plotdir:str='.',):
+	
+	types = ['rz', 'rphi', 'zphi', 'xy']
+
+	figs = []
+	axss = []
+
+	if len(keys) == 0:
+		keys = list(coilobj_new.coilsdict.keys())
+		if part.lower() == 'cs':
+			keys = [k for k in keys if k.lower().startswith('cs')]
+		elif part.lower() == 'pf':
+			keys = [k for k in keys if k.lower().startswith('pf')]
+		else:
+			print(f"WARNING: No keys provided, using all coils starting with {part.upper()}.")
+			keys = [k for k in keys if k.lower().startswith(part.lower())]
+		if len(keys) == 0:
+			raise ValueError(f"No coils found starting with {part.upper()}. Please provide valid keys.")
+
+	for j, typ in enumerate(types):
+		if layout[0]*layout[1] != len(keys):
+			raise ValueError("Layout tuple does not match number of keys.")
+		fig, axs = plt.subplots(layout[0], layout[1], figsize=figsize, 
+									sharex=True, sharey=True)
+		fig.suptitle(suptitle)
+
+		for i,coil in enumerate(keys):
+			if coil not in coilobj_new.coilsdict.keys():
+				print(f"WARNING: Coil {coil} not found in new coil object.")
+				continue
+			if coil not in coilobj_old.coilsdict.keys():
+				print(f"WARNING: Coil {coil} not found in old coil object.")
+				continue
+
+			ax = axs[i//layout[1], i%layout[1]]
+			ax.set_title(coil.upper())
+			coilobj_old.plot2d([coil], legendlabels=old_run_name, fig=fig, ax=ax,
+					  colorlist=['tab:blue'], linewidth=0.5, plottype=typ, showlegend=False, axislabels=False)
+			coilobj_new.plot2d([coil], legendlabels=new_run_name, fig=fig, ax=ax,
+					  colorlist=['tab:orange'], linewidth=0.5, plottype=typ, showlegend=False, axislabels=False)
+		if showlegend:
+			ax.legend()
+
+		if typ == 'rz':
+			xlabel = 'Z (m)'
+			ylabel = 'R (m)'
+		elif typ == 'rphi':
+			xlabel = r'Machine Angle $\phi$'
+			ylabel = 'R (m)'
+		elif typ == 'zphi':
+			xlabel = r'Machine Angle $\phi$'
+			ylabel = 'Z (m)'
+		elif typ == 'xy':
+			xlabel = 'X (m)'
+			ylabel = 'Y (m)'
+		else:
+			raise ValueError("Plot type not implemented. Please add an axis label for this plot type.")
+
+		for i in range(layout[1]):
+			axs[-1,i].set_xlabel(xlabel)
+		for i in range(layout[0]):
+			axs[i,0].set_ylabel(ylabel)
+		
+		figs.append(fig)
+		axss.append(axs)
+		plt.savefig(plotdir + os.sep + f"{new_run_name}_{part}_{typ}.pdf")
+		plt.show()
+		
+	return figs, axss
+		
